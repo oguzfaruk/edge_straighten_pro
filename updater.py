@@ -1,4 +1,14 @@
-import bpy, urllib.request, json, tempfile, os, ssl
+import bpy, urllib.request, json, tempfile, os, ssl, time
+
+# --- Cache settings ---
+THIS_DIR = os.path.dirname(__file__)
+CACHE_DIR = os.path.join(THIS_DIR, ".cache_updater")
+os.makedirs(CACHE_DIR, exist_ok=True)
+CACHE_MANIFEST = os.path.join(CACHE_DIR, "manifest.json")
+# Zip cache path template
+ZIP_CACHE_TPL = os.path.join(CACHE_DIR, "edge_straighten_pro_v{ver}.zip")
+# How long (seconds) to trust cached manifest before re-fetching
+MANIFEST_TTL = 60 * 60 * 24  # 24 hours
 
 # >>> REPO AYARLARI (seninkiler) <<<
 OWNER  = "oguzfaruk"
@@ -20,13 +30,38 @@ def _tuple(v): return tuple(v) if isinstance(v,(list,tuple)) else (0,0,0)
 def _newer(a,b): return a > b
 
 def fetch_remote():
+    # Use cached manifest if recent enough
     try:
+        if os.path.exists(CACHE_MANIFEST):
+            mtime = os.path.getmtime(CACHE_MANIFEST)
+            if time.time() - mtime < MANIFEST_TTL:
+                with open(CACHE_MANIFEST, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                return _tuple(data.get("version", (0, 0, 0))), data.get("notes", "")
+
+        # Otherwise fetch from network and cache
         req = urllib.request.Request(MANIFEST_URL, headers=_HEADERS)
         with urllib.request.urlopen(req, timeout=10, context=_CTX) as r:
-            data = json.loads(r.read().decode("utf-8"))
-        return _tuple(data.get("version",(0,0,0))), data.get("notes","")
+            raw = r.read().decode("utf-8")
+            data = json.loads(raw)
+
+        # write cache safely
+        try:
+            with open(CACHE_MANIFEST, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+        except Exception:
+            pass
+
+        return _tuple(data.get("version", (0, 0, 0))), data.get("notes", "")
     except Exception as e:
-        # Hata detayını döndür ki UI'da görelim
+        # If network failed but cache exists, fall back to it
+        if os.path.exists(CACHE_MANIFEST):
+            try:
+                with open(CACHE_MANIFEST, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                return _tuple(data.get("version", (0, 0, 0))), data.get("notes", "(cached)")
+            except Exception:
+                pass
         return None, f"{type(e).__name__}: {e}"
 
 def install_latest():
@@ -36,16 +71,28 @@ def install_latest():
     local = _get_local_version()
     if not _newer(remote, local):
         return "Already up to date."
+
     ver = ".".join(map(str, remote))
     url = ZIP_URL(ver=ver)
-    tmp = os.path.join(tempfile.gettempdir(), os.path.basename(url))
+
+    # Prefer cached zip if available to avoid re-downloading
+    cached_zip = ZIP_CACHE_TPL.format(ver=ver)
+    if os.path.exists(cached_zip):
+        zip_path = cached_zip
+    else:
+        # download to cache
+        zip_path = cached_zip
+        try:
+            req = urllib.request.Request(url, headers=_HEADERS)
+            with urllib.request.urlopen(req, timeout=30, context=_CTX) as r, open(zip_path, "wb") as f:
+                f.write(r.read())
+        except Exception as e:
+            return f"Download failed: {e}"
+
     try:
-        req = urllib.request.Request(url, headers=_HEADERS)
-        with urllib.request.urlopen(req, timeout=30, context=_CTX) as r, open(tmp, "wb") as f:
-            f.write(r.read())
-        bpy.ops.preferences.addon_install(filepath=tmp, overwrite=True)
+        bpy.ops.preferences.addon_install(filepath=zip_path, overwrite=True)
         bpy.ops.preferences.addon_enable(module=__package__)
-        return f"Updated to v{ver}"
+        return f"Updated to v{ver} (installed from {'cache' if os.path.exists(cached_zip) else 'download'})"
     except Exception as e:
         return f"Install failed: {e}"
 
