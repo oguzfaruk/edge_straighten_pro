@@ -27,6 +27,10 @@ class VIEW3D_PT_edge_straighten(bpy.types.Panel):
         box.prop(ctx.scene, "esp_knearest")
         box.prop(ctx.scene, "esp_only_same_island")
         box.prop(ctx.scene, "esp_keep_y_when_y_axis")
+        box.prop(ctx.scene, "esp_use_vgroup")
+        row = box.row(align=True)
+        row.active = ctx.scene.esp_use_vgroup
+        row.prop_search(ctx.scene, "esp_vgroup_name", ctx.object, "vertex_groups", text="VGroup")
 
         op = layout.operator("mesh.estraighten_loop", text="Run with Scene Settings")
         op.axis = ctx.scene.esp_axis
@@ -37,12 +41,14 @@ class VIEW3D_PT_edge_straighten(bpy.types.Panel):
         op.k_nearest = ctx.scene.esp_knearest
         op.only_same_island = ctx.scene.esp_only_same_island
         op.keep_Y_when_Y_axis = ctx.scene.esp_keep_y_when_y_axis
+        op.use_vgroup = ctx.scene.esp_use_vgroup
+        op.vgroup_name = ctx.scene.esp_vgroup_name
 
 
 class ADDON_PREFERENCES_edge_straighten(bpy.types.AddonPreferences):
     """Basit tercih alanı (güncelleme butonu)."""
     bl_idname = __package__
-    auto_check: bpy.props.BoolProperty(name="Auto check updates", default=True)
+    auto_check = bpy.props.BoolProperty(name="Auto check updates", default=True)
 
     def draw(self, ctx):
         layout = self.layout
@@ -83,6 +89,12 @@ def register():
     bpy.types.Scene.esp_keep_y_when_y_axis = bpy.props.BoolProperty(
         default=True, name="Keep Y when Axis=Y"
     )
+    bpy.types.Scene.esp_use_vgroup = bpy.props.BoolProperty(
+        default=False, name="Use Vertex Group"
+    )
+    bpy.types.Scene.esp_vgroup_name = bpy.props.StringProperty(
+        default="", name="Vertex Group"
+    )
 
 
 def unregister():
@@ -95,6 +107,8 @@ def unregister():
     del bpy.types.Scene.esp_knearest
     del bpy.types.Scene.esp_only_same_island
     del bpy.types.Scene.esp_keep_y_when_y_axis
+    del bpy.types.Scene.esp_use_vgroup
+    del bpy.types.Scene.esp_vgroup_name
 
     for c in reversed(CLASSES):
         bpy.utils.unregister_class(c)

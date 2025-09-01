@@ -37,7 +37,7 @@ class MESH_OT_straighten_loop_and_propagate(bpy.types.Operator):
     bl_label = "Straighten Loop & Propagate"
     bl_options = {'REGISTER', 'UNDO'}
 
-    axis: bpy.props.EnumProperty(
+    axis = bpy.props.EnumProperty(
         name="Axis",
         description="Line direction (the other two axes will be flattened)",
         items=[
@@ -48,20 +48,20 @@ class MESH_OT_straighten_loop_and_propagate(bpy.types.Operator):
         default="Y",
     )
 
-    flatten_to_zero: bpy.props.BoolProperty(
+    flatten_to_zero = bpy.props.BoolProperty(
         name="Flatten to 0",
         description="Use 0 for the flattened components instead of loop centroid",
         default=False,
     )
 
-    radius: bpy.props.FloatProperty(
+    radius = bpy.props.FloatProperty(
         name="Falloff Radius",
         description="0 = Auto (bbox-based). World units.",
         default=0.0,  # 0 → Auto
         min=0.0,
     )
 
-    strength: bpy.props.FloatProperty(
+    strength = bpy.props.FloatProperty(
         name="Strength",
         description="Overall influence for propagation",
         default=1.0,
@@ -69,13 +69,13 @@ class MESH_OT_straighten_loop_and_propagate(bpy.types.Operator):
         max=1.0,
     )
 
-    smooth: bpy.props.BoolProperty(
+    smooth = bpy.props.BoolProperty(
         name="Smooth Falloff",
         description="Use smoothstep for falloff",
         default=True,
     )
 
-    k_nearest: bpy.props.IntProperty(
+    k_nearest = bpy.props.IntProperty(
         name="Nearest (KD)",
         description="Sample this many nearest loop points to blend the delta",
         default=5,
@@ -83,16 +83,29 @@ class MESH_OT_straighten_loop_and_propagate(bpy.types.Operator):
         max=12,
     )
 
-    only_same_island: bpy.props.BoolProperty(
+    only_same_island = bpy.props.BoolProperty(
         name="Only Same Island",
         description="Aynı bağlı ada içindeki vertex'leri etkile",
         default=True,
     )
 
-    keep_Y_when_Y_axis: bpy.props.BoolProperty(
+    keep_Y_when_Y_axis = bpy.props.BoolProperty(
         name="Keep Y (when Axis=Y)",
         description="Axis=Y iken yayılımda Y'yi sabit tut (yükseklik/düşey korunur)",
         default=True,
+    )
+
+    # --- Yeni: Vertex Group ile etkileyebilme ---
+    use_vgroup = bpy.props.BoolProperty(
+        name="Use Vertex Group",
+        description="Modulate propagation by a vertex group weight (0..1)",
+        default=False,
+    )
+
+    vgroup_name = bpy.props.StringProperty(
+        name="Vertex Group",
+        description="Name of the vertex group used to modulate propagation strength",
+        default="",
     )
 
     def execute(self, ctx):
@@ -189,9 +202,23 @@ class MESH_OT_straighten_loop_and_propagate(bpy.types.Operator):
             index_to_vid.append(vid)
         kd.balance()
 
+        # Local copies for speed
         S = self.strength
         K = max(1, self.k_nearest)
         keepY = (self.axis == "Y") and self.keep_Y_when_Y_axis
+
+        # Vertex group pre-setup
+        use_vg = self.use_vgroup and bool(self.vgroup_name)
+        vg_index = None
+        deform_layer = None
+        if use_vg:
+            vg = obj.vertex_groups.get(self.vgroup_name)
+            if vg is None:
+                self.report({'WARNING'}, f"Vertex group '{self.vgroup_name}' not found — disabling vgroup modulation")
+                use_vg = False
+            else:
+                vg_index = vg.index
+                deform_layer = bm.verts.layers.deform.active
 
         affected = 0
         max_shift = 0.0
@@ -224,6 +251,15 @@ class MESH_OT_straighten_loop_and_propagate(bpy.types.Operator):
                 continue
 
             avg_delta = (accum / wsum) * S
+
+            # Vertex group ile modülasyon (0..1)
+            if use_vg and deform_layer is not None:
+                try:
+                    vg_w = v[deform_layer].get(vg_index, 0.0)
+                except Exception:
+                    vg_w = 0.0
+                avg_delta *= vg_w
+
             newP = Pw + avg_delta
 
             if keepY:
