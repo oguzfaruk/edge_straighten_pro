@@ -12,3 +12,4 @@ Select ONE edge in Edit Mode → Straighten its loop along an axis (X/Y/Z) and s
 
 ## Updates
 The add-on checks a JSON manifest on GitHub for the latest version.
+
