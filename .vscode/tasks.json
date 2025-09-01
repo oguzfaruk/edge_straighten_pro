@@ -1,0 +1,28 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Zip Addon (Windows)",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        // Aşağıdaki 1 satırda sürümü değiştir (örn: 1.0.1)
+        "Compress-Archive -Path edge_straighten_pro -DestinationPath edge_straighten_pro_v1.0.0.zip -Force"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Zip Addon (Mac/Linux)",
+      "type": "shell",
+      "command": "zip",
+      "args": [
+        "-r",
+        // Aşağıdaki 1 satırda sürümü değiştir (örn: 1.0.1)
+        "edge_straighten_pro_v1.0.0.zip",
+        "edge_straighten_pro"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}
