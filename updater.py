@@ -23,8 +23,20 @@ _CTX = ssl.create_default_context()
 _HEADERS = {"User-Agent": "EdgeStraightenPro-Updater/1.0"}
 
 def _get_local_version():
-    addon = bpy.context.preferences.addons.get(__package__)
-    return addon.bl_info.get("version", (0,0,0)) if addon else (0,0,0)
+    try:
+        pkg = __package__ if isinstance(__package__, str) and __package__ else None
+        if not pkg:
+            return (0, 0, 0)
+        prefs = getattr(bpy, "context", None)
+        if prefs is None:
+            return (0, 0, 0)
+        addons = getattr(prefs.preferences, "addons", None)
+        if addons is None:
+            return (0, 0, 0)
+        addon = addons.get(pkg)
+        return addon.bl_info.get("version", (0,0,0)) if addon else (0,0,0)
+    except Exception:
+        return (0, 0, 0)
 
 def _tuple(v): return tuple(v) if isinstance(v,(list,tuple)) else (0,0,0)
 def _newer(a,b): return a > b
@@ -64,6 +76,18 @@ def fetch_remote():
                 pass
         return None, f"{type(e).__name__}: {e}"
 
+
+def read_cached_manifest():
+    """Read manifest from local cache only (no network). Returns (version_tuple, notes) or (None, msg)."""
+    try:
+        if os.path.exists(CACHE_MANIFEST):
+            with open(CACHE_MANIFEST, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return _tuple(data.get("version", (0, 0, 0))), data.get("notes", "")
+        return None, "No cached manifest"
+    except Exception as e:
+        return None, f"Cache read error: {type(e).__name__}"
+
 def install_latest():
     remote, msg = fetch_remote()
     if not remote:
@@ -98,17 +122,34 @@ def install_latest():
 
 # ---- UI helpers ----
 def draw_notice(layout):
-    remote, msg = fetch_remote()
-    if not remote:
-        layout.label(text=msg[:64] if msg else "Manifest fetch failed", icon="ERROR")
-        layout.label(text=MANIFEST_URL, icon="URL")
-        return
-    local = _get_local_version()
-    if _newer(remote, local):
-        row = layout.row(); row.alert = True
-        row.operator("wm.estraighten_update", text=f"Update available (v{'.'.join(map(str,remote))})", icon="IMPORT")
-    else:
-        layout.label(text="Up to date", icon="CHECKMARK")
+    # IMPORTANT: avoid network calls inside draw() — use cached manifest only.
+    try:
+        remote, msg = read_cached_manifest()
+        local = _get_local_version()
+
+        if remote and _newer(remote, local):
+            row = layout.row(); row.alert = True
+            row.label(text=f"Update available (v{'.'.join(map(str,remote))})", icon="IMPORT")
+            row.operator("wm.estraighten_update", text="Install")
+            # allow user to see release notes briefly
+            if msg:
+                layout.label(text=str(msg))
+            return
+
+        # No cached newer version found — show status and a manual check button
+        if remote:
+            layout.label(text="Up to date (cached)", icon="CHECKMARK")
+        else:
+            layout.label(text=msg or "No cached update info", icon="INFO")
+
+        # Manual 'check now' button: this runs the network-fetching operator.
+        layout.operator("wm.estraighten_update", text="Check & Install Latest")
+    except Exception:
+        # Keep UI safe — do nothing if anything goes wrong
+        try:
+            layout.label(text="Updater unavailable", icon="ERROR")
+        except Exception:
+            pass
 
 class WM_OT_estraighten_update(bpy.types.Operator):
     bl_idname = "wm.estraighten_update"
