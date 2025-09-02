@@ -27,14 +27,43 @@ def _get_local_version():
         pkg = __package__ if isinstance(__package__, str) and __package__ else None
         if not pkg:
             return (0, 0, 0)
+
         prefs = getattr(bpy, "context", None)
         if prefs is None:
             return (0, 0, 0)
         addons = getattr(prefs.preferences, "addons", None)
-        if addons is None:
-            return (0, 0, 0)
-        addon = addons.get(pkg)
-        return addon.bl_info.get("version", (0,0,0)) if addon else (0,0,0)
+        bl_info = None
+
+        if addons is not None:
+            addon = addons.get(pkg)
+            if addon is not None:
+                # Some Blender builds expose bl_info directly on the Addon proxy,
+                # others do not. Try both addon.bl_info and importing the module.
+                bl_info = getattr(addon, "bl_info", None)
+                if bl_info is None:
+                    modname = getattr(addon, "module", None)
+                    if isinstance(modname, str):
+                        try:
+                            import importlib
+                            mod = importlib.import_module(modname)
+                            bl_info = getattr(mod, "bl_info", None)
+                        except Exception:
+                            bl_info = None
+
+        # Fallback: try importing package by name
+        if bl_info is None:
+            try:
+                import importlib
+                mod = importlib.import_module(pkg)
+                bl_info = getattr(mod, "bl_info", None)
+            except Exception:
+                bl_info = None
+
+        if bl_info:
+            ver = bl_info.get("version")
+            if isinstance(ver, (list, tuple)):
+                return tuple(ver)
+        return (0, 0, 0)
     except Exception:
         return (0, 0, 0)
 
